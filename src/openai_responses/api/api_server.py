@@ -861,7 +861,7 @@ def create_api_server(
                         else:
                             break
                     else:
-                        raise ValueError("No messages to process")
+                        pass
                 if len(self.output_tokens) >= self.request_body.max_output_tokens:
                     break
 
