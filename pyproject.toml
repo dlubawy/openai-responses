@@ -1,0 +1,18 @@
+[project]
+name = "openai-responses"
+version = "0.1.0"
+description = "Modified reference implementation of OpenAI responses server"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "gpt-oss>=0.0.4",
+    "ollama>=0.5.3",
+    "openai-harmony>=0.0.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+response_api = "openai_responses.api.serve:main"
