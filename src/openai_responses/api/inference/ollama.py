@@ -4,6 +4,7 @@ for testing and development. It does not leverage any prompt caching or other op
 can therefore be slow between turns.
 """
 
+import os
 import threading
 import time
 from typing import Callable, Optional
@@ -17,7 +18,9 @@ EOS_TOKEN = 200002  # only used on hard timeout
 POLL_INTERVAL_S = 0.01  # 10ms between buffer checks
 CALL_MAX_WAIT_S = 0.250  # max time to block inside a single infer call
 NO_TOKEN_TIMEOUT_S = 15.0  # overall inactivity timeout before emitting EOS
-FIRST_BYTE_TIMEOUT_S = 30.0  # time to wait for first token before EOS
+FIRST_BYTE_TIMEOUT_S = float(
+    os.getenv("OLLAMA_TIMEOUT", "30.0")
+)  # time to wait for first token before EOS
 
 # Shared state
 _token_buffer: list[int] = []
