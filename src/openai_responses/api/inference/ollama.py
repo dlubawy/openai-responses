@@ -54,8 +54,7 @@ def setup_model(checkpoint: str) -> ModelConnection:
         _close_connection = threading.Event()
 
         def _touch_progress(self):
-            global _last_progress_ts
-            _last_progress_ts = _now()
+            self._last_progress_ts = _now()
 
         def _reset_stream_state(self):
             with self._buffer_lock:
@@ -126,8 +125,6 @@ def setup_model(checkpoint: str) -> ModelConnection:
             - Forwards tokens as they arrive.
             - Only emits EOS_TOKEN if we exceed an inactivity timeout.
             """
-            global _stream_thread
-
             if new_request:
                 self._reset_stream_state()
                 _stream_thread = self._start_stream(
