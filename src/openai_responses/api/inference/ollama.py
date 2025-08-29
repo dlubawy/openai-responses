@@ -7,10 +7,12 @@ can therefore be slow between turns.
 import os
 import threading
 import time
-from typing import Callable, Optional
+from typing import Optional
 
 import ollama
 from openai_harmony import HarmonyEncodingName, load_harmony_encoding
+
+from openai_responses.api.types import ModelConnection
 
 EOS_TOKEN = 200002  # only used on hard timeout
 
@@ -21,15 +23,6 @@ NO_TOKEN_TIMEOUT_S = 15.0  # overall inactivity timeout before emitting EOS
 FIRST_BYTE_TIMEOUT_S = float(
     os.getenv("OLLAMA_TIMEOUT", "30.0")
 )  # time to wait for first token before EOS
-
-# Shared state
-_token_buffer: list[int] = []
-_buffer_lock = threading.Lock()
-_stream_thread: Optional[threading.Thread] = None
-_stream_done = threading.Event()
-_stream_error: Optional[Exception] = None
-_last_progress_ts: float = 0.0  # updated whenever we enqueue or dequeue tokens
-_previous_request_tokens: list[int] = []
 
 
 def lcp(cache: list[int], inp: list[int]) -> list[int]:
@@ -44,108 +37,124 @@ def _now():
     return time.monotonic()
 
 
-def _touch_progress():
-    global _last_progress_ts
-    _last_progress_ts = _now()
-
-
-def _reset_stream_state():
-    global _token_buffer, _stream_thread, _stream_error
-    with _buffer_lock:
-        _token_buffer = []
-    _stream_done.clear()
-    _stream_thread = None
-    _stream_error = None
-    _touch_progress()
-
-
-def setup_model(checkpoint: str) -> Callable[[list[int], float, bool], int]:
+def setup_model(checkpoint: str) -> ModelConnection:
     encoding = load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)
     model_name = checkpoint
     client = ollama.Client(host="localhost")
 
-    def _start_stream(token_ids: list[int], temperature: float):
-        prompt_text = encoding.decode(token_ids)
+    class OllamaModelConnection(ModelConnection):
+        # Shared state
+        _token_buffer: list[int] = []
+        _buffer_lock = threading.Lock()
+        _stream_thread: Optional[threading.Thread] = None
+        _stream_done = threading.Event()
+        _stream_error: Optional[Exception] = None
+        _last_progress_ts: float = 0.0  # updated whenever we enqueue or dequeue tokens
+        _previous_request_tokens: list[int] = []
+        _close_connection = threading.Event()
 
-        def run():
-            nonlocal prompt_text, temperature
-            global _stream_error
-            global _previous_request_tokens
+        def _touch_progress(self):
+            global _last_progress_ts
+            _last_progress_ts = _now()
 
-            accum_text = []
-            last_len = 0  # number of tokens already emitted
-            toks = None
+        def _reset_stream_state(self):
+            with self._buffer_lock:
+                _token_buffer = []
+            self._stream_done.clear()
+            self._stream_thread = None
+            self._stream_error = None
+            self._close_connection.clear()
+            self._touch_progress()
 
-            try:
-                for chunk in client.generate(
-                    model=model_name,
-                    prompt=prompt_text,
-                    stream=True,
-                    options={"temperature": temperature},
-                    raw=True,
-                ):
-                    if isinstance(chunk.response, str):
-                        accum_text.append(chunk.response)
-                        toks = encoding.encode(
-                            "".join(accum_text), allowed_special="all"
-                        )
-                        if len(toks) > last_len:
-                            new_toks = toks[last_len:]
-                            with _buffer_lock:
-                                _token_buffer.extend(new_toks)
-                            last_len = len(toks)
-                            _touch_progress()
+        def _start_stream(self, token_ids: list[int], temperature: float):
+            prompt_text = encoding.decode(token_ids)
 
-                    if chunk.done:
-                        with _buffer_lock:
-                            _token_buffer.append(EOS_TOKEN)
-                        _touch_progress()
+            def run():
+                accum_text = []
+                last_len = 0  # number of tokens already emitted
+                toks = None
 
-                _stream_done.set()
+                try:
+                    for chunk in client.generate(
+                        model=model_name,
+                        prompt=prompt_text,
+                        stream=True,
+                        options={"temperature": temperature},
+                        raw=True,
+                    ):
+                        if self._close_connection.is_set():
+                            with self._buffer_lock:
+                                self._token_buffer.append(EOS_TOKEN)
+                            self._touch_progress
+                            break
 
-            except Exception as e:
-                _stream_error = e
-                _stream_done.set()
+                        if isinstance(chunk.response, str):
+                            accum_text.append(chunk.response)
+                            toks = encoding.encode(
+                                "".join(accum_text), allowed_special="all"
+                            )
+                            if len(toks) > last_len:
+                                new_toks = toks[last_len:]
+                                with self._buffer_lock:
+                                    self._token_buffer.extend(new_toks)
+                                last_len = len(toks)
+                                self._touch_progress()
 
-        t = threading.Thread(target=run, name="ollama-stream", daemon=True)
-        t.start()
-        return t
+                        if chunk.done:
+                            with self._buffer_lock:
+                                self._token_buffer.append(EOS_TOKEN)
+                            self._touch_progress()
 
-    def infer_next_token(
-        tokens: list[int], temperature: float = 0.0, new_request: bool = False
-    ) -> int:
-        """
-        - Starts a new Ollama stream on new_request.
-        - Forwards tokens as they arrive.
-        - Only emits EOS_TOKEN if we exceed an inactivity timeout.
-        """
-        global _stream_thread
+                    self._stream_done.set()
 
-        if new_request:
-            _reset_stream_state()
-            _stream_thread = _start_stream(token_ids=tokens, temperature=temperature)
+                except Exception as e:
+                    self._stream_error = e
+                    self._stream_done.set()
 
-        if _stream_error is not None:
-            raise RuntimeError(f"Ollama stream error: {_stream_error!r}")
+            t = threading.Thread(target=run, name="ollama-stream", daemon=True)
+            t.start()
+            return t
 
-        received_token = False
-        while not _stream_done.is_set() and not received_token:
-            if _buffer_lock.acquire(blocking=False):
-                if _token_buffer:
-                    received_token = True
-                _buffer_lock.release()
+        def close(self):
+            self._close_connection.set()
 
-        with _buffer_lock:
-            if _token_buffer:
-                tok = _token_buffer.pop(0)
-                _touch_progress()
-                return tok
+        def infer_next_token(
+            self, tokens: list[int], temperature: float = 0.0, new_request: bool = False
+        ) -> int:
+            """
+            - Starts a new Ollama stream on new_request.
+            - Forwards tokens as they arrive.
+            - Only emits EOS_TOKEN if we exceed an inactivity timeout.
+            """
+            global _stream_thread
 
-        # If we reach here, we still haven't got a token—ask the caller to call again soon.
-        # Return a harmless token that the server will replace/ignore if your interface supports it.
-        # If your interface does NOT allow a sentinel, keep the short-blocking behavior above.
-        return (
-            EOS_TOKEN if False else 0
-        )  # replace `0` with a PAD/NOOP token your server ignores
+            if new_request:
+                self._reset_stream_state()
+                _stream_thread = self._start_stream(
+                    token_ids=tokens, temperature=temperature
+                )
 
-    return infer_next_token
+            if self._stream_error is not None:
+                raise RuntimeError(f"Ollama stream error: {self._stream_error!r}")
+
+            received_token = False
+            while not self._stream_done.is_set() and not received_token:
+                if self._buffer_lock.acquire(blocking=False):
+                    if self._token_buffer:
+                        received_token = True
+                    self._buffer_lock.release()
+
+            with self._buffer_lock:
+                if self._token_buffer:
+                    tok = self._token_buffer.pop(0)
+                    self._touch_progress()
+                    return tok
+
+            # If we reach here, we still haven't got a token—ask the caller to call again soon.
+            # Return a harmless token that the server will replace/ignore if your interface supports it.
+            # If your interface does NOT allow a sentinel, keep the short-blocking behavior above.
+            return (
+                EOS_TOKEN if False else 0
+            )  # replace `0` with a PAD/NOOP token your server ignores
+
+    return OllamaModelConnection()

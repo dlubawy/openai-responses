@@ -38,25 +38,25 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.inference_backend == "triton":
-        from .inference.triton import setup_model
-    elif args.inference_backend == "stub":
-        from .inference.stub import setup_model
-    elif args.inference_backend == "metal":
-        from .inference.metal import setup_model
-    elif args.inference_backend == "ollama":
+    # if args.inference_backend == "triton":
+    #     from .inference.triton import setup_model
+    # elif args.inference_backend == "stub":
+    #     from .inference.stub import setup_model
+    # elif args.inference_backend == "metal":
+    #     from .inference.metal import setup_model
+    if args.inference_backend == "ollama":
         from .inference.ollama import setup_model
-    elif args.inference_backend == "vllm":
-        from .inference.vllm import setup_model
-    elif args.inference_backend == "transformers":
-        from .inference.transformers import setup_model
+    # elif args.inference_backend == "vllm":
+    #     from .inference.vllm import setup_model
+    # elif args.inference_backend == "transformers":
+    #     from .inference.transformers import setup_model
     else:
         raise ValueError(f"Invalid inference backend: {args.inference_backend}")
 
     encoding = load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)
 
-    infer_next_token = setup_model(args.checkpoint)
-    uvicorn.run(create_api_server(infer_next_token, encoding), port=args.port)
+    model_connection = setup_model(args.checkpoint)
+    uvicorn.run(create_api_server(model_connection, encoding), port=args.port)
 
 
 if __name__ == "__main__":

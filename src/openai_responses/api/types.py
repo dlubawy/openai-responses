@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from typing import Any, Dict, Literal, Optional, Union
 
 from openai_harmony import ReasoningEffort
@@ -7,6 +8,16 @@ MODEL_IDENTIFIER = "gpt-oss-120b"
 DEFAULT_TEMPERATURE = 0.0
 REASONING_EFFORT = ReasoningEffort.LOW
 DEFAULT_MAX_OUTPUT_TOKENS = 10_000
+
+
+class ModelConnection(SimpleNamespace):
+    def infer_next_token(
+        tokens: list[int], temperature: float = 0.0, new_request: bool = False
+    ):
+        pass
+
+    def close():
+        pass
 
 
 class UrlCitation(BaseModel):

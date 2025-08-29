@@ -46,6 +46,7 @@ from openai_responses.api.types import (
     Error,
     FunctionCallItem,
     Item,
+    ModelConnection,
     ReasoningItem,
     ReasoningTextContentItem,
     ResponseObject,
@@ -81,7 +82,7 @@ def is_not_builtin_tool(recipient: str) -> bool:
 
 
 def create_api_server(
-    infer_next_token: Callable[[list[int], float], int], encoding: HarmonyEncoding
+    model_connection: ModelConnection, encoding: HarmonyEncoding
 ) -> FastAPI:
     app = FastAPI()
     responses_store: dict[str, tuple[ResponsesRequest, ResponseObject]] = {}
@@ -419,8 +420,9 @@ def create_api_server(
                 # Check for client disconnect
                 if self.request is not None and await self.request.is_disconnected():
                     print("Client disconnected, stopping token generation.")
+                    model_connection.close()
                     break
-                next_tok = infer_next_token(
+                next_tok = model_connection.infer_next_token(
                     self.tokens,
                     temperature=self.temperature,
                     new_request=self.new_request,
