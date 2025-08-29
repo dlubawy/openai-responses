@@ -15,4 +15,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project.scripts]
-response_api = "openai_responses.api.serve:main"
+responses_api = "openai_responses.api.serve:main"
