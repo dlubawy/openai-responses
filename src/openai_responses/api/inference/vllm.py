@@ -1,17 +1,20 @@
 """
-NOTE: this is not the most efficient way to use vLLM. It's a simple implementation that infers 
-one token at a time to mimic the behavior of the Triton implementation. 
+NOTE: this is not the most efficient way to use vLLM. It's a simple implementation that infers
+one token at a time to mimic the behavior of the Triton implementation.
 """
 
 import os
-from typing import Callable, List, Optional
+from typing import Callable, List
 
 # vLLM imports
 from vllm import LLM, SamplingParams
 from vllm.inputs import TokensPrompt
 
+from openai_responses.api.types import ModelConnection
+
 DEFAULT_TEMPERATURE = 0.0
 TP = os.environ.get("TP", 2)
+
 
 def load_model(checkpoint: str):
     """
@@ -21,9 +24,9 @@ def load_model(checkpoint: str):
 
     llm = LLM(
         model=checkpoint,
-        tensor_parallel_size=TP,          # set >1 if you want TP across GPUs
-        enable_prefix_caching=True,      # reuse KV for shared prefixes
-        disable_log_stats=True,        # uncomment to quiet logs
+        tensor_parallel_size=TP,  # set >1 if you want TP across GPUs
+        enable_prefix_caching=True,  # reuse KV for shared prefixes
+        disable_log_stats=True,  # uncomment to quiet logs
     )
 
     return llm
@@ -52,8 +55,8 @@ def get_infer_next_token(llm: LLM):
 
         sampling = SamplingParams(
             temperature=float(temperature),
-            max_tokens=1,            # we only want the next token
-            n=1,                     # single continuation
+            max_tokens=1,  # we only want the next token
+            n=1,  # single continuation
             # You can expose/enable more controls here (top_p, top_k, etc.)
         )
 
@@ -80,5 +83,9 @@ def get_infer_next_token(llm: LLM):
 
 def setup_model(checkpoint: str) -> Callable[[List[int], float, bool], int]:
     llm = load_model(checkpoint)
-    infer_next_token = get_infer_next_token(llm)
-    return infer_next_token
+
+    # TODO: Move code into an actual method for this implementation
+    class VLLMConnection(ModelConnection):
+        infer_next_token = get_infer_next_token(llm)
+
+    return VLLMConnection()

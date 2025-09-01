@@ -1,6 +1,8 @@
 import time
 from typing import Callable
 
+from openai_responses.api.types import ModelConnection
+
 fake_tokens = [
     200005,
     35644,
@@ -127,16 +129,16 @@ fake_tokens = [
 token_queue = fake_tokens.copy()
 
 
-def stub_infer_next_token(
-    tokens: list[int], temperature: float = 0.0, new_request: bool = False
-) -> int:
-    global token_queue
-    next_tok = token_queue.pop(0)
-    if len(token_queue) == 0:
-        token_queue = fake_tokens.copy()
-    time.sleep(0.1)
-    return next_tok
-
-
 def setup_model(_checkpoint: str) -> Callable[[list[int], float], int]:
-    return stub_infer_next_token
+    class StubConnection(ModelConnection):
+        def infer_next_token(
+            tokens: list[int], temperature: float = 0.0, new_request: bool = False
+        ) -> int:
+            global token_queue
+            next_tok = token_queue.pop(0)
+            if len(token_queue) == 0:
+                token_queue = fake_tokens.copy()
+            time.sleep(0.1)
+            return next_tok
+
+    return StubConnection()

@@ -1,12 +1,11 @@
-import datetime
 import os
 from typing import Callable
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import torch
-import torch.distributed as dist
+from gpt_oss.triton.model import Cache, Transformer
 
-from gpt_oss.triton.model import Cache, ModelConfig, Transformer
+from openai_responses.api.types import ModelConnection
 
 DEFAULT_TEMPERATURE = 0.0
 CONTEXT = 16_384
@@ -73,7 +72,7 @@ def get_infer_next_token(model, device):
         tokens_so_far = lcp(tokens_so_far, tokens)
         for cache in caches:
             cache.truncate(len(tokens_so_far))
-        all_tokens = tokens  # for pdb
+        all_tokens = tokens  # noqa: F841
         tokens = tokens[len(tokens_so_far) :]
 
         if len(tokens) > 1:
@@ -98,5 +97,9 @@ def get_infer_next_token(model, device):
 
 def setup_model(checkpoint: str) -> Callable[[list[int], float], int]:
     model, device = load_model(checkpoint)
-    infer_next_token = get_infer_next_token(model, device)
-    return infer_next_token
+
+    # TODO: Move code into an actual method for this implementation
+    class TritonConnection(ModelConnection):
+        infer_next_token = get_infer_next_token(model, device)
+
+    return TritonConnection()
