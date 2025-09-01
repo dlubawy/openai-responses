@@ -58,7 +58,7 @@ def setup_model(checkpoint: str) -> ModelConnection:
 
         def _reset_stream_state(self):
             with self._buffer_lock:
-                _token_buffer = []
+                self._token_buffer = []
             self._stream_done.clear()
             self._stream_thread = None
             self._stream_error = None
@@ -127,7 +127,7 @@ def setup_model(checkpoint: str) -> ModelConnection:
             """
             if new_request:
                 self._reset_stream_state()
-                _stream_thread = self._start_stream(
+                self._stream_thread = self._start_stream(
                     token_ids=tokens, temperature=temperature
                 )
 
