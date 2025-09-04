@@ -896,7 +896,7 @@ def create_api_server(
         print("request received")
 
         use_browser_tool = any(
-            getattr(tool, "type", None) == "browser_search"
+            getattr(tool, "type", None) in ["browser_search", "web_search_preview"]
             for tool in (body.tools or [])
         )
         use_code_interpreter = any(
