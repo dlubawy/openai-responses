@@ -6,7 +6,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from gpt_oss.tools.python_docker.docker_tool import PythonTool
 from gpt_oss.tools.simple_browser import SimpleBrowserTool
-from gpt_oss.tools.simple_browser.backend import ExaBackend
 from openai_harmony import (
     Author,
     Conversation,
@@ -59,6 +58,7 @@ from openai_responses.api.types import (
     WebSearchActionSearch,
     WebSearchCallItem,
 )
+from openai_responses.tools.simple_browser.backend import DDGSBackend
 
 DEFAULT_TEMPERATURE = 0.0
 
@@ -905,7 +905,7 @@ def create_api_server(
         )
 
         if use_browser_tool:
-            backend = ExaBackend(
+            backend = DDGSBackend(
                 source="web",
             )
             browser_tool = SimpleBrowserTool(backend=backend)
