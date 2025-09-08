@@ -4,9 +4,9 @@ for testing and development. It does not leverage any prompt caching or other op
 can therefore be slow between turns.
 """
 
-import os
 import threading
 import time
+from collections import deque
 from typing import Optional
 
 import ollama
@@ -15,22 +15,6 @@ from openai_harmony import HarmonyEncodingName, load_harmony_encoding
 from openai_responses.api.types import ModelConnection
 
 EOS_TOKEN = 200002  # only used on hard timeout
-
-# Tunables
-POLL_INTERVAL_S = 0.01  # 10ms between buffer checks
-CALL_MAX_WAIT_S = 0.250  # max time to block inside a single infer call
-NO_TOKEN_TIMEOUT_S = 15.0  # overall inactivity timeout before emitting EOS
-FIRST_BYTE_TIMEOUT_S = float(
-    os.getenv("OLLAMA_TIMEOUT", "30.0")
-)  # time to wait for first token before EOS
-
-
-def lcp(cache: list[int], inp: list[int]) -> list[int]:
-    i = 0
-    max_len = min(len(cache), len(inp))
-    while i < max_len and cache[i] == inp[i]:
-        i += 1
-    return cache[:i]
 
 
 def _now():
@@ -44,26 +28,27 @@ def setup_model(checkpoint: str) -> ModelConnection:
 
     class OllamaModelConnection(ModelConnection):
         # Shared state
-        _token_buffer: list[int] = []
+        # Use deque for efficient O(1) popleft operations
+        _token_buffer: deque[int] = deque()
         _buffer_lock = threading.Lock()
+        # Condition variable used to notify waiting callers that a new token
+        # has been added to the buffer.  It is associated with the same
+        # lock used for the token buffer to avoid race conditions.
+        _token_available = threading.Condition(_buffer_lock)
         _stream_thread: Optional[threading.Thread] = None
         _stream_done = threading.Event()
         _stream_error: Optional[Exception] = None
-        _last_progress_ts: float = 0.0  # updated whenever we enqueue or dequeue tokens
-        _previous_request_tokens: list[int] = []
         _close_connection = threading.Event()
-
-        def _touch_progress(self):
-            self._last_progress_ts = _now()
 
         def _reset_stream_state(self):
             with self._buffer_lock:
-                self._token_buffer = []
+                self._token_buffer.clear()
+            self._close_connection.clear()
             self._stream_done.clear()
+            if self._stream_thread and self._stream_thread.is_alive():
+                self._stream_thread.join(timeout=5)
             self._stream_thread = None
             self._stream_error = None
-            self._close_connection.clear()
-            self._touch_progress()
 
         def _start_stream(self, token_ids: list[int], temperature: float):
             prompt_text = encoding.decode(token_ids)
@@ -78,13 +63,19 @@ def setup_model(checkpoint: str) -> ModelConnection:
                         model=model_name,
                         prompt=prompt_text,
                         stream=True,
-                        options={"temperature": temperature, "top_p": 1.0, "top_k": 0},
+                        options={
+                            "temperature": temperature,
+                            "top_p": 1.0,
+                            "top_k": 0,
+                            "num_ctx": 128000,
+                        },
                         raw=True,
                     ):
                         if self._close_connection.is_set():
                             with self._buffer_lock:
                                 self._token_buffer.append(EOS_TOKEN)
-                            self._touch_progress
+                                # Notify any waiting callers that a token is available.
+                                self._token_available.notify_all()
                             break
 
                         if isinstance(chunk.response, str):
@@ -96,13 +87,15 @@ def setup_model(checkpoint: str) -> ModelConnection:
                                 new_toks = toks[last_len:]
                                 with self._buffer_lock:
                                     self._token_buffer.extend(new_toks)
+                                    # Notify any waiting callers that tokens are available.
+                                    self._token_available.notify_all()
                                 last_len = len(toks)
-                                self._touch_progress()
 
                         if chunk.done:
                             with self._buffer_lock:
                                 self._token_buffer.append(EOS_TOKEN)
-                            self._touch_progress()
+                                # Notify waiting callers that EOS token is available.
+                                self._token_available.notify_all()
 
                     self._stream_done.set()
 
@@ -134,17 +127,16 @@ def setup_model(checkpoint: str) -> ModelConnection:
             if self._stream_error is not None:
                 raise RuntimeError(f"Ollama stream error: {self._stream_error!r}")
 
-            received_token = False
-            while not self._stream_done.is_set() and not received_token:
-                if self._buffer_lock.acquire(blocking=False):
-                    if self._token_buffer:
-                        received_token = True
-                    self._buffer_lock.release()
+            # Wait for a token to become available or for the stream to finish.
+            with self._token_available:
+                while not self._stream_done.is_set() and not self._token_buffer:
+                    # Wait with a small timeout to avoid indefinite blocking
+                    # in case the stream ends without notifying.
+                    self._token_available.wait(timeout=0.1)
 
             with self._buffer_lock:
                 if self._token_buffer:
-                    tok = self._token_buffer.pop(0)
-                    self._touch_progress()
+                    tok = self._token_buffer.popleft()
                     return tok
 
             # If we reach here, we still haven't got a token—ask the caller to call again soon.

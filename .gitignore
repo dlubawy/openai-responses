@@ -178,3 +178,6 @@ pyrightconfig.json
 .direnv
 result
 .pre-commit-config.yaml
+
+.codex
+.serena
