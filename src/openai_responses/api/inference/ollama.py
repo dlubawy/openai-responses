@@ -78,7 +78,7 @@ def setup_model(checkpoint: str) -> ModelConnection:
                         model=model_name,
                         prompt=prompt_text,
                         stream=True,
-                        options={"temperature": temperature},
+                        options={"temperature": temperature, "top_p": 1.0, "top_k": 0},
                         raw=True,
                     ):
                         if self._close_connection.is_set():
