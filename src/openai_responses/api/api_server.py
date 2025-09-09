@@ -60,7 +60,7 @@ from openai_responses.api.types import (
 )
 from openai_responses.tools.simple_browser.backend import DDGSBackend
 
-DEFAULT_TEMPERATURE = 0.0
+DEFAULT_TEMPERATURE = 1.0
 
 
 def get_reasoning_effort(effort: Literal["low", "medium", "high"]) -> ReasoningEffort:

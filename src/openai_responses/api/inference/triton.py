@@ -7,7 +7,7 @@ from gpt_oss.triton.model import Cache, Transformer
 
 from openai_responses.api.types import ModelConnection
 
-DEFAULT_TEMPERATURE = 0.0
+DEFAULT_TEMPERATURE = 1.0
 CONTEXT = 16_384
 CONCURRENT_SESSIONS = 1
 

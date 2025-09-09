@@ -13,7 +13,7 @@ from transformers import AutoModelForCausalLM
 
 from openai_responses.api.types import ModelConnection
 
-DEFAULT_TEMPERATURE = 0.0
+DEFAULT_TEMPERATURE = 1.0
 TP = os.environ.get("TP", 2)
 
 
