@@ -1,5 +1,5 @@
 """
-Simple backend for the simple browser tool.
+Simple backend for the simple web_search tool.
 """
 
 import logging
@@ -20,7 +20,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from openai_responses.tools.simple_browser.page_contents import (
+from openai_responses.tools.simple_web_search.page_contents import (
     PageContents,
     process_html,
 )
@@ -122,7 +122,7 @@ class DDGSBackend(Backend):
             except RatelimitException as e:
                 raise BackendError(e)
 
-        # make a simple HTML page to work with browser format
+        # make a simple HTML page to work with web_search format
         titles_and_urls = [
             (result["title"], result["href"], result["body"])
             for result in search_results
@@ -146,7 +146,7 @@ class DDGSBackend(Backend):
 
     async def fetch(self, url: str, session: ClientSession) -> PageContents:
         # WARN: Could get our IP flagged for abuse, but this is not intended for scraping
-        # and should be considered a genuine browse of the site as if using a web browser
+        # and should be considered a genuine browse of the site as if using a web web_search
         session.headers["User-Agent"] = (
             "Mozilla/5.0 (X11; Linux x86_64; rv:10.0) Gecko/20100101 Firefox/10.0"
         )
@@ -191,7 +191,7 @@ class ExaBackend(Backend):
                 "contents": {"text": True, "summary": True},
             },
         )
-        # make a simple HTML page to work with browser format
+        # make a simple HTML page to work with web_search format
         titles_and_urls = [
             (result["title"], result["url"], result["summary"])
             for result in data["results"]
@@ -256,7 +256,7 @@ class YouComBackend(Backend):
             "/v1/search",
             {"query": query, "count": topn},
         )
-        # make a simple HTML page to work with browser format
+        # make a simple HTML page to work with web_search format
         web_titles_and_urls, news_titles_and_urls = [], []
         if "web" in data["results"]:
             web_titles_and_urls = [

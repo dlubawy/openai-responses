@@ -18,6 +18,7 @@ from openai_harmony import (
     Message,
     Role,
     TextContent,
+    ToolDescription,
     ToolNamespaceConfig,
 )
 
@@ -185,7 +186,7 @@ def strip_links(text: str) -> str:
 
 
 def maybe_get_function_args(
-    message: Message, tool_name: str = "browser"
+    message: Message, tool_name: str = "web_search"
 ) -> dict[str, Any] | None:
     if not message.recipient.startswith(f"{tool_name}."):
         return None
@@ -266,7 +267,7 @@ def handle_errors(
     ) -> AsyncIterator[Message]:
         tool = args[0]
         # Could be cool to type this explicitly, but mypy makes it hard
-        assert isinstance(tool, SimpleBrowserTool)
+        assert isinstance(tool, SimpleWebSearchTool)
         try:
             async for msg in func(*args, **kwargs):
                 yield msg
@@ -276,7 +277,7 @@ def handle_errors(
     return inner
 
 
-class SimpleBrowserState(pydantic.BaseModel):
+class SimpleWebSearchState(pydantic.BaseModel):
     # maps page url to page contents
     pages: dict[str, PageContents] = pydantic.Field(default_factory=dict)
     # a sequential list of page urls
@@ -318,7 +319,7 @@ class SimpleBrowserState(pydantic.BaseModel):
         self.page_stack.pop()
 
 
-class SimpleBrowserTool(Tool):
+class SimpleWebSearchTool(Tool):
     def __init__(
         self,
         backend: Backend,
@@ -326,14 +327,14 @@ class SimpleBrowserTool(Tool):
         max_search_results: int = 20,
         tool_state: dict[str, Any] | None = None,
         view_tokens: int = 1024,
-        name: str = "browser",
+        name: str = "web_search",
     ):
-        assert name == "browser"
+        assert name == "web_search"
         self.backend = backend
         if tool_state is None:
-            self.tool_state = SimpleBrowserState()
+            self.tool_state = SimpleWebSearchState()
         else:
-            self.tool_state = SimpleBrowserState.model_validate(tool_state)
+            self.tool_state = SimpleWebSearchState.model_validate(tool_state)
 
         self.encoding_name = encoding_name
         self.max_search_results = max_search_results
@@ -344,7 +345,7 @@ class SimpleBrowserTool(Tool):
 
     @classmethod
     def get_tool_name(cls) -> str:
-        return "browser"
+        return "web_search"
 
     @property
     def name(self) -> str:
@@ -352,16 +353,59 @@ class SimpleBrowserTool(Tool):
 
     @property
     def tool_config(self) -> ToolNamespaceConfig:
-        config = ToolNamespaceConfig.browser()
-        config.name = self.name
-        config.description = (
-            """Tool for browsing.
+        config = ToolNamespaceConfig(
+            name="web_search",
+            description=(
+                """Tool for web search.
 The `cursor` appears in brackets before each browsing display: `[{cursor}]`.
 Cite information from the tool using the following format:
 `【{cursor}†L{line_start}(-L{line_end})?】`, for example: `【6†L9-L11】` or `【8†L3】`.
 Do not quote more than 10 words directly from the tool output.
 sources="""
-            + self.backend.source
+                + self.backend.source
+            ),
+            tools=[
+                ToolDescription(
+                    name="open",
+                    description="Opens the link `id` from the page indicated by `cursor` starting at line number `loc`, showing `num_lines` lines.\nValid link ids are displayed with the formatting: `【{id}†.*】`.\nIf `cursor` is not provided, the most recent page is implied.\nIf `id` is a string, it is treated as a fully qualified URL associated with `source`.\nIf `loc` is not provided, the viewport will be positioned at the beginning of the document or centered on the most relevant passage, if available.\nUse this function without `id` to scroll to a new location of an opened page.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": ["number", "string"], "default": -1},
+                            "cursor": {"type": "number", "default": -1},
+                            "loc": {"type": "number", "default": -1},
+                            "num_lines": {"type": "number", "default": -1},
+                            "view_source": {"type": "boolean", "default": False},
+                            "source": {"type": "string"},
+                        },
+                    },
+                ),
+                ToolDescription(
+                    name="search",
+                    description="Searches for information related to `query` and displays `topn` results.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"},
+                            "topn": {"type": "number", "default": 10},
+                            "source": {"type": "string"},
+                        },
+                        "required": ["query"],
+                    },
+                ),
+                ToolDescription(
+                    name="find",
+                    description="Finds exact matches of `pattern` in the current page, or the page given by `cursor`.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "pattern": {"type": "string"},
+                            "cursor": {"type": "number", "default": -1},
+                        },
+                        "required": ["pattern"],
+                    },
+                ),
+            ],
         )
         return config
 
@@ -445,7 +489,7 @@ sources="""
             return page
         except Exception as e:
             msg = maybe_truncate(str(e))
-            logger.warning("Error fetching URL in lean browser tool", exc_info=e)
+            logger.warning("Error fetching URL in lean web_search tool", exc_info=e)
             raise BackendError(
                 f"Error fetching URL `{maybe_truncate(url)}`: {msg}"
             ) from e

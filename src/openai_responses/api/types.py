@@ -129,7 +129,7 @@ class FunctionToolDefinition(BaseModel):
 
 
 class BrowserToolConfig(BaseModel):
-    type: Union[Literal["browser_search"], Literal["web_search_preview"]]
+    type: Union[Literal["web_search"], Literal["web_search_preview"]]
 
 
 class CodeInterpreterToolConfig(BaseModel):

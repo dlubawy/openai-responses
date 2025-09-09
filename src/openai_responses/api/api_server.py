@@ -5,7 +5,6 @@ from typing import Callable, Literal, Optional
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from gpt_oss.tools.python_docker.docker_tool import PythonTool
-from gpt_oss.tools.simple_browser import SimpleBrowserTool
 from openai_harmony import (
     Author,
     Conversation,
@@ -58,7 +57,8 @@ from openai_responses.api.types import (
     WebSearchActionSearch,
     WebSearchCallItem,
 )
-from openai_responses.tools.simple_browser.backend import DDGSBackend
+from openai_responses.tools.simple_web_search import SimpleWebSearchTool
+from openai_responses.tools.simple_web_search.backend import DDGSBackend
 
 DEFAULT_TEMPERATURE = 1.0
 
@@ -75,7 +75,8 @@ def get_reasoning_effort(effort: Literal["low", "medium", "high"]) -> ReasoningE
 
 def is_not_builtin_tool(recipient: str) -> bool:
     return (
-        not recipient.startswith("browser.")
+        not recipient.startswith("web_search.")
+        and not recipient.startswith("web_search_preview.")
         and not recipient == "python"
         and not recipient == "assistant"
     )
@@ -95,8 +96,8 @@ def create_api_server(
         function_call_ids: Optional[list[tuple[str, str]]] = None,
         response_id: Optional[str] = None,
         previous_response_id: Optional[str] = None,
-        browser_tool: Optional[SimpleBrowserTool] = None,
-        browser_call_ids: Optional[list[str]] = None,
+        web_search_tool: Optional[SimpleWebSearchTool] = None,
+        web_search_call_ids: Optional[list[str]] = None,
         python_tool: Optional[PythonTool] = None,
         python_call_ids: Optional[list[str]] = None,
     ) -> ResponseObject:
@@ -121,7 +122,7 @@ def create_api_server(
                 )
 
             fc_index = 0
-            browser_tool_index = 0
+            web_search_tool_index = 0
             python_tool_index = 0
             for entry in entries:
                 entry_dict = entry.to_dict()
@@ -153,14 +154,14 @@ def create_api_server(
                     )
                 elif (
                     len(entry_dict.get("recipient", "")) > 0
-                    and entry_dict["recipient"].startswith("browser.")
-                    and browser_tool is not None
+                    and entry_dict["recipient"].startswith("web_search.")
+                    and web_search_tool is not None
                 ):
-                    # Mirror event-based creation of WebSearchCallItems when the browser tool is invoked
+                    # Mirror event-based creation of WebSearchCallItems when the web_search tool is invoked
                     name = entry_dict["recipient"]
                     call = entry_dict["content"][0]
                     arguments = call["text"]
-                    function_name = name[len("browser.") :]
+                    function_name = name[len("web_search.") :]
 
                     # Reconstruct a Message for argument parsing
                     tool_msg = (
@@ -171,7 +172,7 @@ def create_api_server(
 
                     action = None
                     try:
-                        parsed_args = browser_tool.process_arguments(tool_msg)
+                        parsed_args = web_search_tool.process_arguments(tool_msg)
                         if function_name == "search":
                             action = WebSearchActionSearch(
                                 type="search",
@@ -189,17 +190,19 @@ def create_api_server(
                                 url=parsed_args["url"],
                             )
                     except Exception as e:
-                        print(f"Error processing browser tool arguments: {e}")
+                        print(f"Error processing web_search tool arguments: {e}")
                         action = None
 
                     if action is not None:
-                        if browser_call_ids and browser_tool_index < len(
-                            browser_call_ids
+                        if web_search_call_ids and web_search_tool_index < len(
+                            web_search_call_ids
                         ):
-                            web_search_call_id = browser_call_ids[browser_tool_index]
+                            web_search_call_id = web_search_call_ids[
+                                web_search_tool_index
+                            ]
                         else:
                             web_search_call_id = f"ws_{uuid.uuid4().hex}"
-                        browser_tool_index += 1
+                        web_search_tool_index += 1
                         output.append(
                             WebSearchCallItem(
                                 type="web_search_call",
@@ -226,9 +229,11 @@ def create_api_server(
                 elif entry_dict["channel"] == "final":
                     content = []
                     for content_entry in entry_dict["content"]:
-                        if browser_tool:
+                        if web_search_tool:
                             text_content, annotation_entries, _has_partial_citations = (
-                                browser_tool.normalize_citations(content_entry["text"])
+                                web_search_tool.normalize_citations(
+                                    content_entry["text"]
+                                )
                             )
                             annotations = [UrlCitation(**a) for a in annotation_entries]
                         else:
@@ -335,7 +340,7 @@ def create_api_server(
             store_callback: Optional[
                 Callable[[str, ResponsesRequest, ResponseObject], None]
             ] = None,
-            browser_tool: Optional[SimpleBrowserTool] = None,
+            web_search_tool: Optional[SimpleWebSearchTool] = None,
             python_tool: Optional[PythonTool] = None,
         ):
             self.initial_tokens = initial_tokens
@@ -360,9 +365,9 @@ def create_api_server(
             self.response_id = response_id
             self.store_callback = store_callback
             self.new_request = True
-            self.browser_tool = browser_tool
-            self.use_browser_tool = browser_tool is not None
-            self.browser_call_ids: list[str] = []
+            self.web_search_tool = web_search_tool
+            self.use_web_search_tool = web_search_tool is not None
+            self.web_search_call_ids: list[str] = []
             self.python_tool = python_tool
             self.use_code_interpreter = python_tool is not None
             self.python_call_ids: list[str] = []
@@ -376,7 +381,7 @@ def create_api_server(
                 return event
 
         async def run(self):
-            browser_tool = self.browser_tool
+            web_search_tool = self.web_search_tool
             self.new_request = True
             initial_response = generate_response(
                 self.initial_tokens,
@@ -385,8 +390,8 @@ def create_api_server(
                 function_call_ids=self.function_call_ids,
                 response_id=self.response_id,
                 previous_response_id=self.request_body.previous_response_id,
-                browser_tool=self.browser_tool,
-                browser_call_ids=self.browser_call_ids,
+                web_search_tool=self.web_search_tool,
+                web_search_call_ids=self.web_search_call_ids,
                 python_tool=self.python_tool,
                 python_call_ids=self.python_call_ids,
             )
@@ -443,7 +448,7 @@ def create_api_server(
                         if previous_item.recipient is not None:
                             recipient = previous_item.recipient
                             if (
-                                not recipient.startswith("browser.")
+                                not recipient.startswith("web_search.")
                                 and not recipient == "python"
                             ):
                                 fc_id = f"fc_{uuid.uuid4().hex}"
@@ -510,12 +515,12 @@ def create_api_server(
                             annotations = [
                                 UrlCitation(**a) for a in current_annotations
                             ]
-                            if browser_tool:
+                            if web_search_tool:
                                 (
                                     normalized_text,
                                     _annotations,
                                     _has_partial_citations,
-                                ) = browser_tool.normalize_citations(
+                                ) = web_search_tool.normalize_citations(
                                     previous_item.content[0].text
                                 )
                             else:
@@ -581,10 +586,10 @@ def create_api_server(
 
                     output_delta_buffer += self.parser.last_content_delta
                     should_send_output_text_delta = True
-                    if browser_tool:
+                    if web_search_tool:
                         # we normalize on the full current text to get the right indices in citations
                         updated_output_text, annotations, has_partial_citations = (
-                            browser_tool.normalize_citations(
+                            web_search_tool.normalize_citations(
                                 current_output_text_content + output_delta_buffer
                             )
                         )
@@ -679,13 +684,15 @@ def create_api_server(
                     if len(self.parser.messages) > 0:
                         last_message = self.parser.messages[-1]
                         if (
-                            self.use_browser_tool
+                            self.use_web_search_tool
                             and last_message.recipient is not None
-                            and last_message.recipient.startswith("browser.")
+                            and last_message.recipient.startswith("web_search.")
                         ):
-                            function_name = last_message.recipient[len("browser.") :]
+                            function_name = last_message.recipient[len("web_search.") :]
                             action = None
-                            parsed_args = browser_tool.process_arguments(last_message)
+                            parsed_args = web_search_tool.process_arguments(
+                                last_message
+                            )
                             if function_name == "search":
                                 action = WebSearchActionSearch(
                                     type="search",
@@ -713,7 +720,7 @@ def create_api_server(
 
                             if action is not None:
                                 web_search_call_id = f"ws_{uuid.uuid4().hex}"
-                                self.browser_call_ids.append(web_search_call_id)
+                                self.web_search_call_ids.append(web_search_call_id)
                                 yield self._send_event(
                                     ResponseOutputItemAdded(
                                         type="response.output_item.added",
@@ -735,7 +742,7 @@ def create_api_server(
 
                             async def run_tool():
                                 results = []
-                                async for msg in browser_tool.process(last_message):
+                                async for msg in web_search_tool.process(last_message):
                                     results.append(msg)
                                 return results
 
@@ -879,8 +886,8 @@ def create_api_server(
                     function_call_ids=self.function_call_ids,
                     response_id=self.response_id,
                     previous_response_id=self.request_body.previous_response_id,
-                    browser_tool=self.browser_tool,
-                    browser_call_ids=self.browser_call_ids,
+                    web_search_tool=self.web_search_tool,
+                    web_search_call_ids=self.web_search_call_ids,
                 )
                 if self.store_callback and self.request_body.store:
                     self.store_callback(self.response_id, self.request_body, response)
@@ -895,8 +902,8 @@ def create_api_server(
     async def generate(body: ResponsesRequest, request: Request):
         print("request received")
 
-        use_browser_tool = any(
-            getattr(tool, "type", None) in ["browser_search", "web_search_preview"]
+        use_web_search_tool = any(
+            getattr(tool, "type", None) in ["web_search", "web_search_preview"]
             for tool in (body.tools or [])
         )
         use_code_interpreter = any(
@@ -904,13 +911,13 @@ def create_api_server(
             for tool in (body.tools or [])
         )
 
-        if use_browser_tool:
+        if use_web_search_tool:
             backend = DDGSBackend(
                 source="web",
             )
-            browser_tool = SimpleBrowserTool(backend=backend)
+            web_search_tool = SimpleWebSearchTool(backend=backend)
         else:
-            browser_tool = None
+            web_search_tool = None
 
         if use_code_interpreter:
             python_tool = PythonTool()
@@ -955,9 +962,9 @@ def create_api_server(
                 reasoning_effort
             )
 
-        if use_browser_tool:
+        if use_web_search_tool:
             system_message_content = system_message_content.with_tools(
-                browser_tool.tool_config
+                web_search_tool.tool_config
             )
         if use_code_interpreter:
             system_message_content = system_message_content.with_tools(
@@ -1078,7 +1085,7 @@ def create_api_server(
             request=request,
             response_id=response_id,
             store_callback=store_callback,
-            browser_tool=browser_tool,
+            web_search_tool=web_search_tool,
             python_tool=python_tool,
         )
 

@@ -1,5 +1,5 @@
 """
-Page contents for the simple browser tool.
+Page contents for the simple web_search tool.
 """
 
 from __future__ import annotations
