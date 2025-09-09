@@ -4,7 +4,7 @@ one token at a time to mimic the behavior of the Triton implementation.
 """
 
 import os
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 import torch
 
@@ -39,6 +39,7 @@ def setup_model(checkpoint: str) -> Callable[[List[int], float, bool], int]:
             tokens: List[int],
             temperature: float = DEFAULT_TEMPERATURE,
             new_request: bool = False,  # kept for interface compatibility; unused here
+            session_id: Optional[str] = None,
         ) -> int:
             tokens = torch.tensor([tokens], dtype=torch.int64, device=model.device)
             output = model.generate(

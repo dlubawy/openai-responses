@@ -12,11 +12,15 @@ DEFAULT_MAX_OUTPUT_TOKENS = 10_000
 
 class ModelConnection(SimpleNamespace):
     def infer_next_token(
-        tokens: list[int], temperature: float = 0.0, new_request: bool = False
+        self,
+        tokens: list[int],
+        temperature: float = 0.0,
+        new_request: bool = False,
+        session_id: Optional[str] = None,
     ):
         pass
 
-    def close():
+    def close(self, session_id: Optional[str] = None):
         pass
 
 

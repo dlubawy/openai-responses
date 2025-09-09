@@ -1,6 +1,6 @@
 """Metal backend for :mod:`gpt_oss.responses_api`."""
 
-from typing import Callable
+from typing import Callable, Optional
 
 from gpt_oss.metal import Context, Model
 
@@ -24,7 +24,10 @@ def setup_model(checkpoint: str) -> Callable[[list[int], float], int]:
 
     class MetalConnection(ModelConnection):
         def infer_next_token(
-            tokens: list[int], temperature: float = 0.0, new_request: bool = False
+            tokens: list[int],
+            temperature: float = 0.0,
+            new_request: bool = False,
+            session_id: Optional[str] = None,
         ) -> int:
             """Infer next token using incremental LCP caching when possible."""
             nonlocal tokens_so_far

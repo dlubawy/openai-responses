@@ -1,5 +1,5 @@
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 from openai_responses.api.types import ModelConnection
 
@@ -132,7 +132,10 @@ token_queue = fake_tokens.copy()
 def setup_model(_checkpoint: str) -> Callable[[list[int], float], int]:
     class StubConnection(ModelConnection):
         def infer_next_token(
-            tokens: list[int], temperature: float = 0.0, new_request: bool = False
+            tokens: list[int],
+            temperature: float = 0.0,
+            new_request: bool = False,
+            session_id: Optional[str] = None,
         ) -> int:
             global token_queue
             next_tok = token_queue.pop(0)

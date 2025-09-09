@@ -4,7 +4,7 @@ one token at a time to mimic the behavior of the Triton implementation.
 """
 
 import os
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 # vLLM imports
 from vllm import LLM, SamplingParams
@@ -49,6 +49,7 @@ def get_infer_next_token(llm: LLM):
         tokens: List[int],
         temperature: float = DEFAULT_TEMPERATURE,
         new_request: bool = False,  # kept for interface compatibility; unused here
+        session_id: Optional[str] = None,
     ) -> int:
         if not tokens:
             raise ValueError("tokens must contain at least one input token id")

@@ -15,5 +15,10 @@ dependencies = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
+
 [project.scripts]
 responses_api = "openai_responses.api.serve:main"

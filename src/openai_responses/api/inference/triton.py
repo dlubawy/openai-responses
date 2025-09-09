@@ -1,5 +1,5 @@
 import os
-from typing import Callable
+from typing import Callable, Optional
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import torch
@@ -67,6 +67,7 @@ def get_infer_next_token(model, device):
         tokens: list[int],
         temperature: float = DEFAULT_TEMPERATURE,
         new_request: bool = False,
+        session_id: Optional[str] = None,
     ) -> int:
         nonlocal tokens_so_far
         tokens_so_far = lcp(tokens_so_far, tokens)
