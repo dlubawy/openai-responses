@@ -425,12 +425,22 @@ def create_api_server(
                 # Check for client disconnect
                 if self.request is not None and await self.request.is_disconnected():
                     print("Client disconnected, stopping token generation.")
-                    model_connection.close()
+                    print(
+                        f"Session ID: {self.request.headers.get('session_id')}"
+                        if self.request
+                        else "No session."
+                    )
+                    model_connection.close(
+                        self.request.headers.get("session_id") if self.request else None
+                    )
                     break
                 next_tok = model_connection.infer_next_token(
                     self.tokens,
                     temperature=self.temperature,
                     new_request=self.new_request,
+                    session_id=self.request.headers.get("session_id", "")
+                    if self.request
+                    else "",
                 )
                 self.new_request = False
                 self.tokens.append(next_tok)
@@ -901,6 +911,11 @@ def create_api_server(
     @app.post("/v1/responses", response_model=ResponseObject)
     async def generate(body: ResponsesRequest, request: Request):
         print("request received")
+        print(
+            f"Session ID: {request.headers.get('session_id')}"
+            if request
+            else "No session."
+        )
 
         use_web_search_tool = any(
             getattr(tool, "type", None) in ["web_search", "web_search_preview"]

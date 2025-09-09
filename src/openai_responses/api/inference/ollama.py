@@ -26,19 +26,18 @@ def setup_model(checkpoint: str) -> ModelConnection:
     model_name = checkpoint
     client = ollama.Client(host="localhost")
 
-    class OllamaModelConnection(ModelConnection):
-        # Shared state
-        # Use deque for efficient O(1) popleft operations
-        _token_buffer: deque[int] = deque()
-        _buffer_lock = threading.Lock()
-        # Condition variable used to notify waiting callers that a new token
-        # has been added to the buffer.  It is associated with the same
-        # lock used for the token buffer to avoid race conditions.
-        _token_available = threading.Condition(_buffer_lock)
-        _stream_thread: Optional[threading.Thread] = None
-        _stream_done = threading.Event()
-        _stream_error: Optional[Exception] = None
-        _close_connection = threading.Event()
+    class OlmSession:
+        def __init__(self, session_id: str, model_name: str, client):
+            self.session_id = session_id
+            self.model_name = model_name
+            self.client = client
+            self._token_buffer: deque[int] = deque()
+            self._buffer_lock = threading.Lock()
+            self._token_available = threading.Condition(self._buffer_lock)
+            self._stream_thread: Optional[threading.Thread] = None
+            self._stream_done = threading.Event()
+            self._stream_error: Optional[Exception] = None
+            self._close_connection = threading.Event()
 
         def _reset_stream_state(self):
             with self._buffer_lock:
@@ -53,12 +52,11 @@ def setup_model(checkpoint: str) -> ModelConnection:
 
             def run():
                 accum_text = []
-                last_len = 0  # number of tokens already emitted
+                last_len = 0
                 toks = None
-
                 try:
-                    for chunk in client.generate(
-                        model=model_name,
+                    for chunk in self.client.generate(
+                        model=self.model_name,
                         prompt=prompt_text,
                         stream=True,
                         options={
@@ -72,79 +70,95 @@ def setup_model(checkpoint: str) -> ModelConnection:
                         if self._close_connection.is_set():
                             with self._buffer_lock:
                                 self._token_buffer.append(EOS_TOKEN)
-                                # Notify any waiting callers that a token is available.
                                 self._token_available.notify_all()
                             break
-
                         if isinstance(chunk.response, str):
                             accum_text.append(chunk.response)
                             toks = encoding.encode(
                                 "".join(accum_text), allowed_special="all"
                             )
-                            if len(toks) > last_len:
+                            if toks and len(toks) > last_len:
                                 new_toks = toks[last_len:]
                                 with self._buffer_lock:
                                     self._token_buffer.extend(new_toks)
-                                    # Notify any waiting callers that tokens are available.
                                     self._token_available.notify_all()
                                 last_len = len(toks)
-
                         if chunk.done:
                             with self._buffer_lock:
                                 self._token_buffer.append(EOS_TOKEN)
-                                # Notify waiting callers that EOS token is available.
                                 self._token_available.notify_all()
-
                     self._stream_done.set()
-
                 except Exception as e:
                     self._stream_error = e
                     self._stream_done.set()
 
-            t = threading.Thread(target=run, name="ollama-stream", daemon=True)
+            t = threading.Thread(
+                target=run, name=f"ollama-stream-{self.session_id}", daemon=True
+            )
             t.start()
-            return t
+            self._stream_thread = t
 
         def close(self):
             while self._stream_thread and not self._stream_done:
                 self._close_connection.set()
-                self._stream_thread.join(timeout=0.1)
+                self._stream_thread.join(timeout=0.5)
             self._reset_stream_state()
 
         def infer_next_token(
             self, tokens: list[int], temperature: float = 0.0, new_request: bool = False
         ) -> int:
-            """
-            - Starts a new Ollama stream on new_request.
-            - Forwards tokens as they arrive.
-            - Only emits EOS_TOKEN if we exceed an inactivity timeout.
-            """
             if new_request:
                 self.close()
-                self._stream_thread = self._start_stream(
-                    token_ids=tokens, temperature=temperature
-                )
-
+                self._start_stream(tokens, temperature)
             if self._stream_error is not None:
                 raise RuntimeError(f"Ollama stream error: {self._stream_error!r}")
-
-            # Wait for a token to become available or for the stream to finish.
             with self._token_available:
                 while not self._stream_done.is_set() and not self._token_buffer:
-                    # Wait with a small timeout to avoid indefinite blocking
-                    # in case the stream ends without notifying.
                     self._token_available.wait(timeout=0.1)
-
             with self._buffer_lock:
                 if self._token_buffer:
-                    tok = self._token_buffer.popleft()
-                    return tok
+                    return self._token_buffer.popleft()
+            return EOS_TOKEN
 
-            # If we reach here, we still haven't got a token—ask the caller to call again soon.
-            # Return a harmless token that the server will replace/ignore if your interface supports it.
-            # If your interface does NOT allow a sentinel, keep the short-blocking behavior above.
-            return (
-                EOS_TOKEN if False else 0
-            )  # replace `0` with a PAD/NOOP token your server ignores
+    class OllamaModelConnection(ModelConnection):
+        def __init__(self):
+            self._sessions: dict[str, OlmSession] = {}
+            self._sessions_lock = threading.Lock()
+
+        def _get_or_create_session(self, session_id: str) -> OlmSession:
+            with self._sessions_lock:
+                if session_id not in self._sessions:
+                    self._sessions[session_id] = OlmSession(
+                        session_id, model_name, client
+                    )
+                return self._sessions[session_id]
+
+        def close_session(self, session_id: str):
+            with self._sessions_lock:
+                sess = self._sessions.pop(session_id, None)
+                if sess:
+                    sess.close()
+
+        def infer_next_token(
+            self,
+            tokens: list[int],
+            temperature: float = 0.0,
+            new_request: bool = False,
+            session_id: Optional[str] = None,
+        ) -> int:
+            if session_id is None:
+                raise ValueError("session_id required for OllamaModelConnection.")
+            sess = self._get_or_create_session(session_id)
+            return sess.infer_next_token(tokens, temperature, new_request)
+
+        def close(self, session_id: Optional[str] = None):
+            with self._sessions_lock:
+                sess = self._sessions.pop(session_id, None)
+                if sess:
+                    sess.close()
+                else:
+                    for sess in list(self._sessions.values()):
+                        sess.close()
+                    self._sessions.clear()
 
     return OllamaModelConnection()
