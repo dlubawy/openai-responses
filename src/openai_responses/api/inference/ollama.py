@@ -45,8 +45,6 @@ def setup_model(checkpoint: str) -> ModelConnection:
                 self._token_buffer.clear()
             self._close_connection.clear()
             self._stream_done.clear()
-            if self._stream_thread and self._stream_thread.is_alive():
-                self._stream_thread.join(timeout=5)
             self._stream_thread = None
             self._stream_error = None
 
@@ -108,7 +106,10 @@ def setup_model(checkpoint: str) -> ModelConnection:
             return t
 
         def close(self):
-            self._close_connection.set()
+            while self._stream_thread and not self._stream_done:
+                self._close_connection.set()
+                self._stream_thread.join(timeout=0.1)
+            self._reset_stream_state()
 
         def infer_next_token(
             self, tokens: list[int], temperature: float = 0.0, new_request: bool = False
@@ -119,7 +120,7 @@ def setup_model(checkpoint: str) -> ModelConnection:
             - Only emits EOS_TOKEN if we exceed an inactivity timeout.
             """
             if new_request:
-                self._reset_stream_state()
+                self.close()
                 self._stream_thread = self._start_stream(
                     token_ids=tokens, temperature=temperature
                 )
