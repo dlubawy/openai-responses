@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 MODEL_IDENTIFIER = "gpt-oss-120b"
 DEFAULT_TEMPERATURE = 1.0
-REASONING_EFFORT = ReasoningEffort.LOW
+REASONING_EFFORT = ReasoningEffort.MEDIUM
 DEFAULT_MAX_OUTPUT_TOKENS = 10_000
 
 

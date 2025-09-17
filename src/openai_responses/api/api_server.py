@@ -64,13 +64,15 @@ DEFAULT_TEMPERATURE = 1.0
 
 
 def get_reasoning_effort(effort: Literal["low", "medium", "high"]) -> ReasoningEffort:
-    if effort == "low":
-        return ReasoningEffort.LOW
-    if effort == "medium":
-        return ReasoningEffort.MEDIUM
-    if effort == "high":
-        return ReasoningEffort.HIGH
-    raise ValueError(f"Invalid reasoning effort: {effort}")
+    match effort.capitalize():
+        case ReasoningEffort.LOW:
+            return ReasoningEffort.LOW
+        case ReasoningEffort.MEDIUM:
+            return ReasoningEffort.MEDIUM
+        case ReasoningEffort.HIGH:
+            return ReasoningEffort.HIGH
+        case _:
+            raise ValueError(f"Invalid reasoning effort: {effort}")
 
 
 def is_not_builtin_tool(recipient: str) -> bool:
