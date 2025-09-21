@@ -1,6 +1,8 @@
 import datetime
 import logging
+import os
 import uuid
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Callable, Literal, Optional
 
@@ -12,6 +14,7 @@ from openai_harmony import (
     Conversation,
     DeveloperContent,
     HarmonyEncoding,
+    HarmonyEncodingName,
     Message,
     ReasoningEffort,
     Role,
@@ -19,6 +22,7 @@ from openai_harmony import (
     StreamState,
     SystemContent,
     ToolDescription,
+    load_harmony_encoding,
 )
 
 from openai_responses.api.events import (
@@ -90,27 +94,56 @@ def is_not_builtin_tool(recipient: str) -> bool:
 
 
 def create_api_server(
-    model_connection: ModelConnection,
-    encoding: HarmonyEncoding,
+    model_connection: Optional[ModelConnection] = None,
+    inference_backend: Optional[str] = None,
+    encoding: Optional[HarmonyEncoding] = None,
+    encoding_name: str = "HarmonyGptOss",
+    checkpoint: str = "gpt-oss:20b",
     log_level: int = logging.DEBUG,
     verbosity: int = logging.WARNING,
 ) -> FastAPI:
+    # TODO: Make this into a proper config setup using configparser
+    if model_connection is None:
+        match os.getenv("OPENAI_RESPONSES_INFERENCE_BACKEND", inference_backend):
+            case "triton":
+                from .inference.triton import setup_model
+            case "stub":
+                from .inference.stub import setup_model
+            case "metal":
+                from .inference.metal import setup_model
+            case "ollama":
+                from .inference.ollama import setup_model
+            case "vllm":
+                from .inference.vllm import setup_model
+            case "transformers":
+                from .inference.transformers import setup_model
+            case _:
+                raise ValueError(f"Invalid inference backend: {inference_backend}")
+        model_connection = setup_model(
+            os.getenv("OPENAI_RESPONSES_CHECKPOINT", checkpoint)
+        )
+
+    if encoding is None:
+        encoding = load_harmony_encoding(
+            HarmonyEncodingName(os.getenv("OPENAI_RESPONSES_ENCODING", encoding_name))
+        )
+
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.DEBUG)
     formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
-    rotating_file_handler = logging.handlers.RotatingFileHandler(
-        LOG_FILE, maxBytes=10e6, backupCount=5
-    )
+    rotating_file_handler = RotatingFileHandler(LOG_FILE, maxBytes=10e6, backupCount=5)
     rotating_file_handler.setFormatter(formatter)
-    rotating_file_handler.setLevel(log_level)
+    rotating_file_handler.setLevel(
+        int(os.getenv("OPENAI_RESPONSES_LOG_LEVEL", log_level))
+    )
     logger.addHandler(rotating_file_handler)
 
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
-    stream_handler.setLevel(verbosity)
+    stream_handler.setLevel(int(os.getenv("OPENAI_RESPONSES_VERBOSITY", verbosity)))
     logger.addHandler(stream_handler)
 
     app = FastAPI()

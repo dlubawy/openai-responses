@@ -115,7 +115,7 @@ def client_for_messages(messages: List[DummyMessage], raise_parse: bool = False)
 
     encoding = DummyEncoding(messages, raise_for=raise_parse)
     model = DummyModelConnection()
-    app = create_api_server(model, encoding)
+    app = create_api_server(model_connection=model, encoding=encoding)
     return TestClient(app)
 
 

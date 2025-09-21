@@ -1,15 +1,8 @@
-# torchrun --nproc-per-node=4 serve.py
-
 import argparse
 import logging
+import os
 
 import uvicorn
-from openai_harmony import (
-    HarmonyEncodingName,
-    load_harmony_encoding,
-)
-
-from openai_responses.api.api_server import create_api_server
 
 
 def main():
@@ -28,6 +21,13 @@ def main():
         type=int,
         default=8000,
         help="Port to run the server on",
+    )
+    parser.add_argument(
+        "--workers",
+        metavar="WORKERS",
+        type=int,
+        default=1,
+        help="Workers to process",
     )
     parser.add_argument(
         "--inference-backend",
@@ -55,32 +55,19 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.inference_backend == "triton":
-        from .inference.triton import setup_model
-    elif args.inference_backend == "stub":
-        from .inference.stub import setup_model
-    elif args.inference_backend == "metal":
-        from .inference.metal import setup_model
-    elif args.inference_backend == "ollama":
-        from .inference.ollama import setup_model
-    elif args.inference_backend == "vllm":
-        from .inference.vllm import setup_model
-    elif args.inference_backend == "transformers":
-        from .inference.transformers import setup_model
-    else:
-        raise ValueError(f"Invalid inference backend: {args.inference_backend}")
-
-    encoding = load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)
-
-    model_connection = setup_model(args.checkpoint)
+    os.environ.update(
+        {
+            "OPENAI_RESPONSES_INFERENCE_BACKEND": args.inference_backend,
+            "OPENAI_RESPONSES_CHECKPOINT": args.checkpoint,
+            "OPENAI_RESPONSES_LOG_LEVEL": str(logging.getLevelName(args.log_level)),
+            "OPENAI_RESPONSES_VERBOSITY": str(logging.getLevelName(args.verbosity)),
+        }
+    )
     uvicorn.run(
-        create_api_server(
-            model_connection,
-            encoding,
-            log_level=logging.getLevelName(args.log_level),
-            verbosity=logging.getLevelName(args.verbosity),
-        ),
+        "openai_responses.api.api_server:create_api_server",
         port=args.port,
+        workers=args.workers,
+        factory=True,
     )
 
 
