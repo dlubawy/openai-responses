@@ -1,5 +1,7 @@
 import datetime
+import logging
 import uuid
+from pathlib import Path
 from typing import Callable, Literal, Optional
 
 from fastapi import FastAPI, Request
@@ -61,6 +63,9 @@ from openai_responses.tools.simple_web_search import SimpleWebSearchTool
 from openai_responses.tools.simple_web_search.backend import DDGSBackend
 
 DEFAULT_TEMPERATURE = 1.0
+STATE_PATH = Path.home().joinpath(".local/state/openai-responses")
+STATE_PATH.mkdir(parents=True, exist_ok=True)
+LOG_FILE = STATE_PATH.joinpath("api_server.log")
 
 
 def get_reasoning_effort(effort: Literal["low", "medium", "high"]) -> ReasoningEffort:
@@ -85,8 +90,29 @@ def is_not_builtin_tool(recipient: str) -> bool:
 
 
 def create_api_server(
-    model_connection: ModelConnection, encoding: HarmonyEncoding
+    model_connection: ModelConnection,
+    encoding: HarmonyEncoding,
+    log_level: int = logging.DEBUG,
+    verbosity: int = logging.WARNING,
 ) -> FastAPI:
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+    rotating_file_handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE, maxBytes=10e6, backupCount=5
+    )
+    rotating_file_handler.setFormatter(formatter)
+    rotating_file_handler.setLevel(log_level)
+    logger.addHandler(rotating_file_handler)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+    stream_handler.setLevel(verbosity)
+    logger.addHandler(stream_handler)
+
     app = FastAPI()
     responses_store: dict[str, tuple[ResponsesRequest, ResponseObject]] = {}
 
@@ -112,7 +138,7 @@ def create_api_server(
                         output_tokens, Role.ASSISTANT
                     )
                 except Exception as e:
-                    print(f"Error parsing tokens: {e}")
+                    logger.error(f"Error parsing tokens: {e}")
                     error = Error(
                         code="invalid_function_call",
                         message=f"{e}",
@@ -192,7 +218,7 @@ def create_api_server(
                                 url=parsed_args["url"],
                             )
                     except Exception as e:
-                        print(f"Error processing web_search tool arguments: {e}")
+                        logger.error(f"Error processing web_search tool arguments: {e}")
                         action = None
 
                     if action is not None:
@@ -426,8 +452,8 @@ def create_api_server(
             while True:
                 # Check for client disconnect
                 if self.request is not None and await self.request.is_disconnected():
-                    print("Client disconnected, stopping token generation.")
-                    print(
+                    logger.info("Client disconnected, stopping token generation.")
+                    logger.info(
                         f"Session ID: {self.request.headers.get('session_id')}"
                         if self.request
                         else "No session."
@@ -448,7 +474,8 @@ def create_api_server(
                 self.tokens.append(next_tok)
                 try:
                     self.parser.process(next_tok)
-                except Exception:
+                except Exception as err:
+                    logger.error(f"Error parsing next tokens: {err}")
                     pass
 
                 if self.parser.state == StreamState.EXPECT_START:
@@ -687,6 +714,7 @@ def create_api_server(
                     # purely for debugging purposes
                     output_token_text = encoding.decode_utf8([next_tok])
                     self.output_text += output_token_text
+                    logger.debug(output_token_text)
                     print(output_token_text, end="", flush=True)
 
                 except RuntimeError:
@@ -771,7 +799,9 @@ def create_api_server(
                                 Conversation.from_messages(result), Role.ASSISTANT
                             )
 
-                            print(encoding.decode_utf8(new_tokens))
+                            print_tokens = encoding.decode_utf8(new_tokens)
+                            logger.debug(print_tokens)
+                            print(print_tokens)
                             self.output_tokens.append(next_tok)
                             self.tokens.append(
                                 encoding.encode("<|end|>", allowed_special="all")[0]
@@ -839,13 +869,16 @@ def create_api_server(
 
                             result = await run_python_tool()
 
+                            logger.debug(result)
                             print(result)
 
                             new_tokens = encoding.render_conversation_for_completion(
                                 Conversation.from_messages(result), Role.ASSISTANT
                             )
 
-                            print(encoding.decode_utf8(new_tokens))
+                            print_tokens = encoding.decode_utf8(new_tokens)
+                            logger.debug(print_tokens)
+                            print(print_tokens)
                             self.output_tokens.append(next_tok)
                             self.tokens.append(
                                 encoding.encode("<|end|>", allowed_special="all")[0]
@@ -912,8 +945,8 @@ def create_api_server(
 
     @app.post("/v1/responses", response_model=ResponseObject)
     async def generate(body: ResponsesRequest, request: Request):
-        print("request received")
-        print(
+        logger.info("request received")
+        logger.info(
             f"Session ID: {request.headers.get('session_id')}"
             if request
             else "No session."
@@ -1089,7 +1122,9 @@ def create_api_server(
         initial_tokens = encoding.render_conversation_for_completion(
             conversation, Role.ASSISTANT
         )
-        print(encoding.decode_utf8(initial_tokens))
+        print_tokens = encoding.decode_utf8(initial_tokens)
+        logger.debug(print_tokens)
+        print(print_tokens)
         response_id = f"resp_{uuid.uuid4().hex}"
 
         def store_callback(rid: str, req: ResponsesRequest, resp: ResponseObject):

@@ -1,6 +1,7 @@
 # torchrun --nproc-per-node=4 serve.py
 
 import argparse
+import logging
 
 import uvicorn
 from openai_harmony import (
@@ -36,6 +37,22 @@ def main():
         # default to metal on macOS, triton on other platforms
         default="metal" if __import__("platform").system() == "Darwin" else "triton",
     )
+    parser.add_argument(
+        "--verbosity",
+        metavar="VERBOSITY",
+        type=str,
+        help="Verbosity level to use",
+        default="WARN",
+        choices=list(logging.getLevelNamesMapping().keys()),
+    )
+    parser.add_argument(
+        "--log-level",
+        metavar="LOG_LEVEL",
+        type=str,
+        help="Log level to use",
+        default="DEBUG",
+        choices=list(logging.getLevelNamesMapping().keys()),
+    )
     args = parser.parse_args()
 
     if args.inference_backend == "triton":
@@ -56,7 +73,15 @@ def main():
     encoding = load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)
 
     model_connection = setup_model(args.checkpoint)
-    uvicorn.run(create_api_server(model_connection, encoding), port=args.port)
+    uvicorn.run(
+        create_api_server(
+            model_connection,
+            encoding,
+            log_level=logging.getLevelName(args.log_level),
+            verbosity=logging.getLevelName(args.verbosity),
+        ),
+        port=args.port,
+    )
 
 
 if __name__ == "__main__":
