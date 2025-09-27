@@ -80,17 +80,17 @@ class FunctionCallOutputItem(BaseModel):
 
 
 class WebSearchActionSearch(BaseModel):
-    type: Literal["search"]
+    type: Literal["web_search"]
     query: Optional[str] = None
 
 
 class WebSearchActionOpenPage(BaseModel):
-    type: Literal["open_page"]
+    type: Literal["open_link"]
     url: Optional[str] = None
 
 
 class WebSearchActionFind(BaseModel):
-    type: Literal["find"]
+    type: Literal["find_in_page"]
     pattern: Optional[str] = None
     url: Optional[str] = None
 

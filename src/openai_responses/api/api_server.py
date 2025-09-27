@@ -234,19 +234,19 @@ def create_api_server(
                     action = None
                     try:
                         parsed_args = web_search_tool.process_arguments(tool_msg)
-                        if function_name == "search":
+                        if function_name == "web_search":
                             action = WebSearchActionSearch(
-                                type="search",
+                                type="web_search",
                                 query=parsed_args["query"],
                             )
-                        elif function_name == "open":
+                        elif function_name == "open_link":
                             action = WebSearchActionOpenPage(
-                                type="open_page",
+                                type="open_link",
                                 url=parsed_args["url"],
                             )
-                        elif function_name == "find":
+                        elif function_name == "find_in_page":
                             action = WebSearchActionFind(
-                                type="find",
+                                type="find_in_page",
                                 pattern=parsed_args["pattern"],
                                 url=parsed_args["url"],
                             )
@@ -766,23 +766,23 @@ def create_api_server(
                             parsed_args = web_search_tool.process_arguments(
                                 last_message
                             )
-                            if function_name == "search":
+                            if function_name == "web_search":
                                 action = WebSearchActionSearch(
-                                    type="search",
+                                    type="web_search",
                                     query=parsed_args["query"],
                                 )
-                            elif function_name == "open":
+                            elif function_name == "open_link":
                                 action = WebSearchActionOpenPage(
-                                    type="open_page",
+                                    type="open_link",
                                     url=(
                                         parsed_args["url"]
                                         if "url" in parsed_args
                                         else None
                                     ),
                                 )
-                            elif function_name == "find":
+                            elif function_name == "find_in_page":
                                 action = WebSearchActionFind(
-                                    type="find",
+                                    type="find_in_page",
                                     pattern=parsed_args["pattern"],
                                     url=(
                                         parsed_args["url"]

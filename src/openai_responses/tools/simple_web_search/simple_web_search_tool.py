@@ -366,7 +366,7 @@ sources="""
             ),
             tools=[
                 ToolDescription(
-                    name="open",
+                    name="open_link",
                     description="Opens the link `id` from the page indicated by `cursor` starting at line number `loc`, showing `num_lines` lines.\nValid link ids are displayed with the formatting: `【{id}†.*】`.\nIf `cursor` is not provided, the most recent page is implied.\nIf `id` is a string, it is treated as a fully qualified URL associated with `source`.\nIf `loc` is not provided, the viewport will be positioned at the beginning of the document or centered on the most relevant passage, if available.\nUse this function without `id` to scroll to a new location of an opened page.",
                     parameters={
                         "type": "object",
@@ -381,7 +381,7 @@ sources="""
                     },
                 ),
                 ToolDescription(
-                    name="search",
+                    name="web_search",
                     description="Searches for information related to `query` and displays `topn` results.",
                     parameters={
                         "type": "object",
@@ -394,7 +394,7 @@ sources="""
                     },
                 ),
                 ToolDescription(
-                    name="find",
+                    name="find_in_page",
                     description="Finds exact matches of `pattern` in the current page, or the page given by `cursor`.",
                     parameters={
                         "type": "object",
@@ -648,17 +648,17 @@ sources="""
             return
 
         _, function_name = message.recipient.split(".")
-        if function_name not in ["search", "open", "find"]:
+        if function_name not in ["web_search", "open_link", "find_in_page"]:
             yield make_error_message(f"Unknown function: {function_name}")
             return
 
-        if function_name == "search":
+        if function_name == "web_search":
             async for msg in self.search(**function_args):
                 yield msg
-        elif function_name == "open":
+        elif function_name == "open_link":
             async for msg in self.open(**function_args):
                 yield msg
-        elif function_name == "find":
+        elif function_name == "find_in_page":
             async for msg in self.find(**function_args):
                 yield msg
         else:
