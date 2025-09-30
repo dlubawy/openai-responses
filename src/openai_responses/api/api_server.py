@@ -64,7 +64,6 @@ from openai_responses.api.types import (
     WebSearchCallItem,
 )
 from openai_responses.tools.simple_web_search import SimpleWebSearchTool
-from openai_responses.tools.simple_web_search.backend import OllamaBackend
 
 DEFAULT_TEMPERATURE = 1.0
 STATE_PATH = Path.home().joinpath(".local/state/openai-responses")
@@ -995,9 +994,49 @@ def create_api_server(
         )
 
         if use_web_search_tool:
-            backend = OllamaBackend(
-                source="web",
-            )
+            match os.getenv("OPENAI_RESPONSES_INFERENCE_BACKEND", "ddgs"):
+                case "ddgs":
+                    from openai_responses.tools.simple_web_search.backend import (
+                        DDGSBackend,
+                    )
+
+                    backend = DDGSBackend(
+                        source="web",
+                    )
+                case "ollama":
+                    from openai_responses.tools.simple_web_search.backend import (
+                        OllamaBackend,
+                    )
+
+                    backend = OllamaBackend(
+                        source="web",
+                    )
+                case "tavily":
+                    from openai_responses.tools.simple_web_search.backend import (
+                        TavilyBackend,
+                    )
+
+                    backend = TavilyBackend(
+                        source="web",
+                    )
+                case "exa":
+                    from openai_responses.tools.simple_web_search.backend import (
+                        ExaBackend,
+                    )
+
+                    backend = ExaBackend(
+                        source="web",
+                    )
+                case "youcom":
+                    from openai_responses.tools.simple_web_search.backend import (
+                        YouComBackend,
+                    )
+
+                    backend = YouComBackend(
+                        source="web",
+                    )
+                case _:
+                    raise ValueError("Must specify a valid search backend")
             web_search_tool = SimpleWebSearchTool(backend=backend)
         else:
             web_search_tool = None

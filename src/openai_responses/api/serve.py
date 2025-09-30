@@ -31,11 +31,18 @@ def main():
     )
     parser.add_argument(
         "--inference-backend",
-        metavar="BACKEND",
+        metavar="INFERENCE_BACKEND",
         type=str,
         help="Inference backend to use",
         # default to metal on macOS, triton on other platforms
         default="metal" if __import__("platform").system() == "Darwin" else "triton",
+    )
+    parser.add_argument(
+        "--search-backend",
+        metavar="SEARCH_BACKEND",
+        type=str,
+        help="Search backend to use",
+        default="ollama",
     )
     parser.add_argument(
         "--verbosity",
@@ -58,6 +65,7 @@ def main():
     os.environ.update(
         {
             "OPENAI_RESPONSES_INFERENCE_BACKEND": args.inference_backend,
+            "OPENAI_RESPONSES_SEARCH_BACKEND": args.search_backend,
             "OPENAI_RESPONSES_CHECKPOINT": args.checkpoint,
             "OPENAI_RESPONSES_LOG_LEVEL": str(logging.getLevelName(args.log_level)),
             "OPENAI_RESPONSES_VERBOSITY": str(logging.getLevelName(args.verbosity)),
