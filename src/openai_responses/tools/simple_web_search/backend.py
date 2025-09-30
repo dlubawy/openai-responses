@@ -162,6 +162,100 @@ class DDGSBackend(Backend):
 
 
 @chz.chz(typecheck=True)
+class TavilyBackend(Backend):
+    """Backend that uses Tavily Search API"""
+
+    source: str = chz.field(doc="Description of the backend source")
+    api_key: str | None = chz.field(
+        doc="Tavily API key. Uses TAVILY_API_KEY environment variable if not provided.",
+        default=None,
+    )
+
+    BASE_URL: str = "https://api.tavily.com"
+
+    async def _post(self, session: ClientSession, endpoint: str, payload: dict) -> dict:
+        headers = {"Authorization": f"Bearer {self._get_api_key()}"}
+        async with session.post(
+            f"{self.BASE_URL}{endpoint}", json=payload, headers=headers
+        ) as resp:
+            if resp.status != 200:
+                raise BackendError(
+                    f"{self.__class__.__name__} error {resp.status}: {await resp.text()}"
+                )
+            return await resp.json()
+
+    async def _get(self, session: ClientSession, endpoint: str, params: dict) -> dict:
+        headers = {"Authorization": f"Bearer {self._get_api_key()}"}
+        async with session.get(
+            f"{self.BASE_URL}{endpoint}", params=params, headers=headers
+        ) as resp:
+            if resp.status != 200:
+                raise BackendError(
+                    f"{self.__class__.__name__} error {resp.status}: {await resp.text()}"
+                )
+            return await resp.json()
+
+    def _get_api_key(self) -> str:
+        key = self.api_key or os.environ.get("TAVILY_API_KEY")
+        if not key:
+            raise BackendError("Tavily API key not provided")
+        return key
+
+    async def search(
+        self, query: str, topn: int, session: ClientSession
+    ) -> PageContents:
+        data = await self._post(
+            session,
+            "/search",
+            {
+                "query": query,
+                "max_results": topn,
+            },
+        )
+        # make a simple HTML page to work with web_search format
+        titles_and_urls = [
+            (result["title"], result["url"], result["content"])
+            for result in data["results"]
+        ]
+        html_page = f"""
+<html><body>
+<h1>Search Results</h1>
+<ul>
+{"".join([f"<li><a href='{url}'>{title}</a> {summary}</li>" for title, url, summary in titles_and_urls])}
+</ul>
+</body></html>
+"""
+
+        return process_html(
+            html=html_page,
+            url="",
+            title=query,
+            display_urls=True,
+            session=session,
+        )
+
+    async def fetch(self, url: str, session: ClientSession) -> PageContents:
+        is_view_source = url.startswith(VIEW_SOURCE_PREFIX)
+        if is_view_source:
+            url = url[len(VIEW_SOURCE_PREFIX) :]
+        data = await self._post(
+            session,
+            "/extract",
+            {"urls": [url], "format": "text"},
+        )
+        results = data.get("results", [])
+        if not results:
+            raise BackendError(f"No contents returned for {url}")
+        return process_html(
+            html=results[0].get("raw_content", ""),
+            url=url,
+            title="",
+            display_urls=True,
+            session=session,
+        )
+
+
+@chz.chz(typecheck=True)
 class ExaBackend(Backend):
     """Backend that uses the Exa Search API."""
 

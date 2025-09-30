@@ -64,7 +64,7 @@ from openai_responses.api.types import (
     WebSearchCallItem,
 )
 from openai_responses.tools.simple_web_search import SimpleWebSearchTool
-from openai_responses.tools.simple_web_search.backend import DDGSBackend
+from openai_responses.tools.simple_web_search.backend import TavilyBackend
 
 DEFAULT_TEMPERATURE = 1.0
 STATE_PATH = Path.home().joinpath(".local/state/openai-responses")
@@ -995,7 +995,7 @@ def create_api_server(
         )
 
         if use_web_search_tool:
-            backend = DDGSBackend(
+            backend = TavilyBackend(
                 source="web",
             )
             web_search_tool = SimpleWebSearchTool(backend=backend)
